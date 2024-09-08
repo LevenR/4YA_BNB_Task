@@ -18,9 +18,10 @@ const RPC_URL = process.env.RPC_URL!;
 const API_TOKEN = process.env.API_TOKEN!;
 const STBTC_CONTRACT_ADDRESS = process.env.STBTC_CONTRACT_ADDRESS!;
 const START_TRACK_TIME = process.env.START_TRACK_TIME!;
+const END_TRACK_TIME = process.env.END_TRACK_TIME!;
 
 const BLOCK_FILE = 'last_processed_block.txt'; //record last process bolck number
-const POLLING_INTERVAL = 10000; // 30 seconds
+const POLLING_INTERVAL = 10000; // 10 seconds
 
 const API_URL = 'https://dapp-server.bnbchain.world/api/v1/olympics-campaign/upload-user';
 
@@ -90,6 +91,7 @@ async function processEvents(
                     ])
                 
                 if (error == null) {
+                    console.log(`user_addr ${user} complete task 1`)
                     const timestamp = Math.floor(Date.now() / 1000);
                     try {
                         const response = await axios.post(API_URL, {
@@ -106,7 +108,6 @@ async function processEvents(
                                 'Content-Type': 'application/json'
                             }
                         });
-        
                         console.log('API Response:', response.data);
                     } catch (error) {
                         console.error('Error sending data to API:', error);
@@ -144,6 +145,7 @@ async function processEvents(
                         ])
                 
                     if (error == null) {
+                        console.log(`user_addr ${sender} complete task 2`)
                         const timestamp = Math.floor(Date.now() / 1000);
                         try {
                             const response = await axios.post(API_URL, {
@@ -194,6 +196,7 @@ async function processEvents(
                             { user_addr: staker, task_id: 3 }
                         ])
                     if (error == null) {
+                        console.log(`user_addr ${staker} complete task 3`)
                         const timestamp = Math.floor(Date.now() / 1000);
                         try {
                             const response = await axios.post(API_URL, {
@@ -229,8 +232,8 @@ async function saveLastProcessedBlock(blockNumber: number): Promise<void> {
     await fs.promises.writeFile(BLOCK_FILE, blockNumber.toString());
 }
 
-async function getBlockHeightByTimestamp(provider: JsonRpcProvider, timestamp: number) {
-    let from = 0;
+async function getBlockHeightByTimestamp(provider: JsonRpcProvider, startBlock: number, timestamp: number) {
+    let from = startBlock;
     let to = Number(await provider.getBlockNumber());
 
     while (from < to) {
@@ -254,17 +257,29 @@ async function main() {
     let lastProcessedBlock = await getLastProcessedBlock();
     console.log(`Starting to process events from block ${lastProcessedBlock}`);
     let bStartTrack = false;
+    let finished = false;
   
     while (true) {
+
+        if (finished) {
+            console.log(`Track event already finished...`);
+            return;
+        }
 
         const latestBlock = await provider.getBlockNumber();
         console.log('latestBlock:', latestBlock);
         if (!bStartTrack) {
             const block = await provider.getBlock(latestBlock);
-            console.log("block!.timestamp: ", block!.timestamp)
-            if (block!.timestamp > Number(START_TRACK_TIME)) { 
+            console.log("latestBlock.timestamp: ", block!.timestamp)
+            const block1 = await provider.getBlock(lastProcessedBlock);
+            console.log("lastProcessedBlock.timestamp: ", block!.timestamp)
+
+            if (block1!.timestamp > Number(START_TRACK_TIME)) {
                 bStartTrack = true
-                let startBlock = await getBlockHeightByTimestamp(provider, Number(START_TRACK_TIME));
+            }
+            if (block1!.timestamp < Number(START_TRACK_TIME) && block!.timestamp > Number(START_TRACK_TIME)) { 
+                bStartTrack = true
+                let startBlock = await getBlockHeightByTimestamp(provider, lastProcessedBlock, Number(START_TRACK_TIME));
                 if (startBlock > lastProcessedBlock) {
                     lastProcessedBlock = startBlock;
                 }
@@ -274,8 +289,15 @@ async function main() {
         if (bStartTrack) {
             try {
                 if (latestBlock > lastProcessedBlock) {
-                    const fromBlock = lastProcessedBlock + 1;
-                    const toBlock = Math.min(latestBlock, fromBlock + 5); // Process max 1000 blocks at a time
+                    let fromBlock = lastProcessedBlock + 1;
+                    let toBlock = Math.min(latestBlock, fromBlock + 100); // Process max 100 blocks at a time
+
+                    const block = await provider.getBlock(toBlock);
+                    if (block!.timestamp > Number(END_TRACK_TIME)) {
+                        let endBlock = await getBlockHeightByTimestamp(provider, lastProcessedBlock, Number(END_TRACK_TIME));
+                        toBlock = endBlock
+                        finished = true
+                    }
                         
                     await processEvents(btcb_staking_contract, pancake_pair_contract, pell_contract, fromBlock, toBlock);
                         
