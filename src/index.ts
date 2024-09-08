@@ -1,7 +1,8 @@
-import { ethers } from 'ethers';
+import { ethers, JsonRpcProvider } from 'ethers';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
@@ -16,9 +17,10 @@ const PELL_CONTRACT_ADDRESS = process.env.PELL_CONTRACT_ADDRESS!;
 const RPC_URL = process.env.RPC_URL!;
 const API_TOKEN = process.env.API_TOKEN!;
 const STBTC_CONTRACT_ADDRESS = process.env.STBTC_CONTRACT_ADDRESS!;
+const START_TRACK_TIME = process.env.START_TRACK_TIME!;
 
 const BLOCK_FILE = 'last_processed_block.txt'; //record last process bolck number
-const POLLING_INTERVAL = 10000; // 10 seconds
+const POLLING_INTERVAL = 10000; // 30 seconds
 
 const API_URL = 'https://dapp-server.bnbchain.world/api/v1/olympics-campaign/upload-user';
 
@@ -33,6 +35,11 @@ const PANCAKE_PAIR_ABI = [
 const PELL_CONTRACT_ABI = [
     "event Deposit(address staker, address token, address strategy, uint256 shares)"
 ];
+
+const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_KEY!
+);
 
 async function getLastProcessedBlock(): Promise<number> {
     try {
@@ -76,26 +83,36 @@ async function processEvents(
             );
             
             if (stBTCAmount >= ethers.parseEther("0.0002")) {
-                const timestamp = Math.floor(Date.now() / 1000);
-                try {
-                    const response = await axios.post(API_URL, {
-                        token: API_TOKEN,
-                        data: [
-                            {
-                                taskId: 1,
-                                timestamp: timestamp,
-                                address: user
+                const { error } = await supabase
+                    .from('user_tasks')
+                    .insert([
+                        { user_addr: user, task_id: 1 }
+                    ])
+                
+                if (error == null) {
+                    const timestamp = Math.floor(Date.now() / 1000);
+                    try {
+                        const response = await axios.post(API_URL, {
+                            token: API_TOKEN,
+                            data: [
+                                {
+                                    taskId: 1,
+                                    timestamp: timestamp,
+                                    address: user
+                                }
+                            ]
+                        }, {
+                            headers: {
+                                'Content-Type': 'application/json'
                             }
-                        ]
-                    }, {
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-    
-                    console.log('API Response:', response.data);
-                } catch (error) {
-                    console.error('Error sending data to API:', error);
+                        });
+        
+                        console.log('API Response:', response.data);
+                    } catch (error) {
+                        console.error('Error sending data to API:', error);
+                    }
+                } else {
+                    console.log('insert error, code: ', error.code, ' message: ', error.message)
                 }
             }else{
                 console.log('stBTCAmount is less than 0.0002');
@@ -120,27 +137,37 @@ async function processEvents(
                             tick: ${tick}`
                 );
                 if (amount1 < 0 && (-amount1) >= ethers.parseEther("0.0002")) {
-                    const timestamp = Math.floor(Date.now() / 1000);
-                    try {
-                        const response = await axios.post(API_URL, {
-                            token: API_TOKEN,
-                            data: [
-                                {
-                                    taskId: 2,
-                                    timestamp: timestamp,
-                                    address: sender
+                    const { error } = await supabase
+                        .from('user_tasks')
+                        .insert([
+                            { user_addr: sender, task_id: 2 }
+                        ])
+                
+                    if (error == null) {
+                        const timestamp = Math.floor(Date.now() / 1000);
+                        try {
+                            const response = await axios.post(API_URL, {
+                                token: API_TOKEN,
+                                data: [
+                                    {
+                                        taskId: 2,
+                                        timestamp: timestamp,
+                                        address: sender
+                                    }
+                                ]
+                            }, {
+                                headers: {
+                                    'Content-Type': 'application/json'
                                 }
-                            ]
-                        }, {
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        console.log('API Response:', response.data);
-                    } catch (error) {
-                        console.error('Error sending data to API:', error);
+                            });
+                            console.log('API Response:', response.data);
+                        } catch (error) {
+                            console.error('Error sending data to API:', error);
+                        }
+                    } else {
+                        console.log('insert error, code: ', error.code, ' message: ', error.message)
                     }
-                }else{
+                } else {
                     console.log('swap stBTCAmount is less than 0.0002');
                 }
             }
@@ -160,25 +187,35 @@ async function processEvents(
                             shares: ${shares}`
                 );
                 if (token == STBTC_CONTRACT_ADDRESS && shares >= ethers.parseEther("0.0002")) {
-                    const timestamp = Math.floor(Date.now() / 1000);
-                    try {
-                        const response = await axios.post(API_URL, {
-                            token: API_TOKEN,
-                            data: [
-                                {
-                                    taskId: 3,
-                                    timestamp: timestamp,
-                                    address: staker
+
+                    const { error } = await supabase
+                        .from('user_tasks')
+                        .insert([
+                            { user_addr: staker, task_id: 3 }
+                        ])
+                    if (error == null) {
+                        const timestamp = Math.floor(Date.now() / 1000);
+                        try {
+                            const response = await axios.post(API_URL, {
+                                token: API_TOKEN,
+                                data: [
+                                    {
+                                        taskId: 3,
+                                        timestamp: timestamp,
+                                        address: staker
+                                    }
+                                ]
+                            }, {
+                                headers: {
+                                    'Content-Type': 'application/json'
                                 }
-                            ]
-                        }, {
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        console.log('API Response:', response.data);
-                    } catch (error) {
-                        console.error('Error sending data to API:', error);
+                            });
+                            console.log('API Response:', response.data);
+                        } catch (error) {
+                            console.error('Error sending data to API:', error);
+                        }
+                    } else {
+                        console.log('insert error, code: ', error.code, ' message: ', error.message)
                     }
                 } else {
                     console.log('stake stBTCAmount is less than 0.0002');
@@ -192,6 +229,22 @@ async function saveLastProcessedBlock(blockNumber: number): Promise<void> {
     await fs.promises.writeFile(BLOCK_FILE, blockNumber.toString());
 }
 
+async function getBlockHeightByTimestamp(provider: JsonRpcProvider, timestamp: number) {
+    let from = 0;
+    let to = Number(await provider.getBlockNumber());
+
+    while (from < to) {
+        const mid = Math.floor((from + to) / 2);
+        const block = await provider.getBlock(mid);
+        if (block!.timestamp < timestamp) {
+            from = mid + 1;
+        } else {
+            to = mid;
+        }
+    }
+    return from;
+}
+
 async function main() {
     const provider = new ethers.JsonRpcProvider(RPC_URL);
     const btcb_staking_contract = new ethers.Contract(BTCB_STAKE_CONTRACT_ADDRESS, BTCB_STAKING_ABI, provider);
@@ -199,30 +252,47 @@ async function main() {
     const pell_contract = new ethers.Contract(PELL_CONTRACT_ADDRESS, PELL_CONTRACT_ABI, provider);
   
     let lastProcessedBlock = await getLastProcessedBlock();
-  
     console.log(`Starting to process events from block ${lastProcessedBlock}`);
+    let bStartTrack = false;
   
     while (true) {
-      try {
-            const latestBlock = await provider.getBlockNumber();
-            console.log('latestBlock:', latestBlock);
-        
-            if (latestBlock > lastProcessedBlock) {
-                const fromBlock = lastProcessedBlock + 1;
-                const toBlock = Math.min(latestBlock, fromBlock + 999); // Process max 1000 blocks at a time
-                
-                await processEvents(btcb_staking_contract, pancake_pair_contract, pell_contract, fromBlock, toBlock);
-                
-                lastProcessedBlock = toBlock;
-                await saveLastProcessedBlock(lastProcessedBlock);
-                console.log(`Processed blocks ${fromBlock} to ${toBlock}`);
+
+        const latestBlock = await provider.getBlockNumber();
+        console.log('latestBlock:', latestBlock);
+        if (!bStartTrack) {
+            const block = await provider.getBlock(latestBlock);
+            console.log("block!.timestamp: ", block!.timestamp)
+            if (block!.timestamp > Number(START_TRACK_TIME)) { 
+                bStartTrack = true
+                let startBlock = await getBlockHeightByTimestamp(provider, Number(START_TRACK_TIME));
+                if (startBlock > lastProcessedBlock) {
+                    lastProcessedBlock = startBlock;
+                }
             }
-      } catch (error) {
-            console.error('Error processing events:', error);
-      }
-  
-      // Wait before next polling
-      await new Promise(resolve => setTimeout(resolve, POLLING_INTERVAL));
+            console.log('lastProcessedBlock: ', lastProcessedBlock);
+        }
+        if (bStartTrack) {
+            try {
+                if (latestBlock > lastProcessedBlock) {
+                    const fromBlock = lastProcessedBlock + 1;
+                    const toBlock = Math.min(latestBlock, fromBlock + 5); // Process max 1000 blocks at a time
+                        
+                    await processEvents(btcb_staking_contract, pancake_pair_contract, pell_contract, fromBlock, toBlock);
+                        
+                    lastProcessedBlock = toBlock;
+                    await saveLastProcessedBlock(lastProcessedBlock);
+                    console.log(`Processed blocks ${fromBlock} to ${toBlock}`);
+                }
+            } catch (error) {
+                console.error('Error processing events:', error);
+            }
+        } else {
+            console.log(`Start Time not reach. ${START_TRACK_TIME}`);
+        }
+    
+        // Wait before next polling
+        console.log(`==================================`);
+        await new Promise(resolve => setTimeout(resolve, POLLING_INTERVAL));
     }
 }
   
