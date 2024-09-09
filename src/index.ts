@@ -92,6 +92,7 @@ async function processEvents(
                 
                 if (error == null) {
                     console.log(`user_addr ${user} complete task 1`)
+                    console.log('API_URL:', API_URL, '  API_TOKEN:', API_TOKEN);
                     const timestamp = Math.floor(Date.now() / 1000);
                     try {
                         const response = await axios.post(API_URL, {
@@ -295,7 +296,7 @@ async function main() {
             try {
                 if (latestBlock > lastProcessedBlock) {
                     let fromBlock = lastProcessedBlock + 1;
-                    let toBlock = Math.min(latestBlock, fromBlock + 100); // Process max 100 blocks at a time
+                    let toBlock = Math.min(latestBlock, fromBlock + 99); // Process max 100 blocks at a time
 
                     const block = await provider.getBlock(toBlock);
                     if (block!.timestamp > Number(END_TRACK_TIME)) {
