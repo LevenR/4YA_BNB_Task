@@ -23,7 +23,7 @@ const END_TRACK_TIME = process.env.END_TRACK_TIME!;
 const BLOCK_FILE = 'last_processed_block.txt'; //record last process bolck number
 const POLLING_INTERVAL = 10000; // 10 seconds
 
-const API_URL = 'https://dapp-server.bnbchain.world/api/v1/olympics-campaign/upload-user';
+const API_URL = 'https://dapp-server.bnbchain.world/api/v1/4ya/upload-user' //'https://dapp-server.bnbchain.world/api/v1/olympics-campaign/upload-user';
 
 const BTCB_STAKING_ABI = [
   "event StakeBTC2JoinStakePlan(uint256 indexed stakeIndex, uint256 indexed planId, address indexed user, address btcContractAddress, uint256 stakeAmount, uint256 stBTCAmount)"
@@ -272,7 +272,12 @@ async function main() {
             const block = await provider.getBlock(latestBlock);
             console.log("latestBlock.timestamp: ", block!.timestamp)
             const block1 = await provider.getBlock(lastProcessedBlock);
-            console.log("lastProcessedBlock.timestamp: ", block!.timestamp)
+            console.log("lastProcessedBlock.timestamp: ", block1!.timestamp)
+
+            if (block1!.timestamp > Number(END_TRACK_TIME)) {
+                console.log("4YA_BNB_Task already finish!!!")
+                return;
+            }
 
             if (block1!.timestamp > Number(START_TRACK_TIME)) {
                 bStartTrack = true
@@ -281,7 +286,7 @@ async function main() {
                 bStartTrack = true
                 let startBlock = await getBlockHeightByTimestamp(provider, lastProcessedBlock, Number(START_TRACK_TIME));
                 if (startBlock > lastProcessedBlock) {
-                    lastProcessedBlock = startBlock;
+                    lastProcessedBlock = startBlock - 1;
                 }
             }
             console.log('lastProcessedBlock: ', lastProcessedBlock);
@@ -294,9 +299,12 @@ async function main() {
 
                     const block = await provider.getBlock(toBlock);
                     if (block!.timestamp > Number(END_TRACK_TIME)) {
-                        let endBlock = await getBlockHeightByTimestamp(provider, lastProcessedBlock, Number(END_TRACK_TIME));
+                        let endBlock = await getBlockHeightByTimestamp(provider, fromBlock, Number(END_TRACK_TIME));
                         toBlock = endBlock
                         finished = true
+                    }
+                    if(fromBlock > toBlock){
+                        return;
                     }
                         
                     await processEvents(btcb_staking_contract, pancake_pair_contract, pell_contract, fromBlock, toBlock);
