@@ -142,11 +142,11 @@ async function processEvents(
                     const { error } = await supabase
                         .from('user_tasks')
                         .insert([
-                            { user_addr: sender, task_id: 2 }
+                            { user_addr: recipient, task_id: 2 }
                         ])
                 
                     if (error == null) {
-                        console.log(`user_addr ${sender} complete task 2`)
+                        console.log(`user_addr ${recipient} complete task 2`)
                         const timestamp = Math.floor(Date.now() / 1000);
                         try {
                             const response = await axios.post(API_URL, {
@@ -155,7 +155,7 @@ async function processEvents(
                                     {
                                         taskId: 2,
                                         timestamp: timestamp,
-                                        address: sender
+                                        address: recipient
                                     }
                                 ]
                             }, {
