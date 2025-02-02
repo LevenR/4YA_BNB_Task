@@ -2,17 +2,16 @@ import { ethers, JsonRpcProvider } from 'ethers';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import { createClient } from '@supabase/supabase-js';
+import { Level } from 'level';
 
 dotenv.config();
 
-if (!process.env.BTCB_STAKE_CONTRACT_ADDRESS || !process.env.RPC_URL || !process.env.API_TOKEN || !process.env.PANCAKE_PAIR_CONTRACT_ADDRESS || !process.env.PELL_CONTRACT_ADDRESS || !process.env.STBTC_CONTRACT_ADDRESS) {
+if (!process.env.BTCB_STAKE_CONTRACT_ADDRESS || !process.env.RPC_URL || !process.env.API_TOKEN || !process.env.PELL_CONTRACT_ADDRESS || !process.env.STBTC_CONTRACT_ADDRESS) {
     console.error('Missing required environment variables.');
     process.exit(1);
 }
 
 const BTCB_STAKE_CONTRACT_ADDRESS = process.env.BTCB_STAKE_CONTRACT_ADDRESS!;
-const PANCAKE_PAIR_CONTRACT_ADDRESS = process.env.PANCAKE_PAIR_CONTRACT_ADDRESS!;
 const PELL_CONTRACT_ADDRESS = process.env.PELL_CONTRACT_ADDRESS!;
 const RPC_URL = process.env.RPC_URL!;
 const API_TOKEN = process.env.API_TOKEN!;
@@ -23,24 +22,26 @@ const END_TRACK_TIME = process.env.END_TRACK_TIME!;
 const BLOCK_FILE = 'last_processed_block.txt'; //record last process bolck number
 const POLLING_INTERVAL = 10000; // 10 seconds
 
-const API_URL = 'https://dapp-server.bnbchain.world/api/v1/4ya/upload-user' //'https://dapp-server.bnbchain.world/api/v1/olympics-campaign/upload-user';
+const API_URL = 'https://dapp-server.bnbchain.world/api/v1/redpack-campaign/upload-user'
 
 const BTCB_STAKING_ABI = [
   "event StakeBTC2JoinStakePlan(uint256 indexed stakeIndex, uint256 indexed planId, address indexed user, address btcContractAddress, uint256 stakeAmount, uint256 stBTCAmount)"
-];
-
-const PANCAKE_PAIR_ABI = [
-    "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint128 protocolFeesToken0, uint128 protocolFeesToken1)"
 ];
 
 const PELL_CONTRACT_ABI = [
     "event Deposit(address staker, address token, address strategy, uint256 shares)"
 ];
 
-const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_KEY!
-);
+// 初始化 LevelDB，指定正确的类型
+const db = new Level<string, TaskStatus>('./task-db', { valueEncoding: 'json' });
+
+// 定义任务状态接口
+interface TaskStatus {
+    address: string;
+    taskId: number;
+    timestamp: number;
+    uploaded: boolean;
+}
 
 async function getLastProcessedBlock(): Promise<number> {
     try {
@@ -53,7 +54,6 @@ async function getLastProcessedBlock(): Promise<number> {
 
 async function processEvents(
     btcb_staking_contract: ethers.Contract,
-    pancake_pair_contract: ethers.Contract,
     pell_contract: ethers.Contract,
     fromBlock: number,
     toBlock: number
@@ -61,9 +61,6 @@ async function processEvents(
     console.log(`Processing events from block ${fromBlock} to ${toBlock}`);
     const stakingFilter = btcb_staking_contract.filters.StakeBTC2JoinStakePlan();
     const stakingEvents = await btcb_staking_contract.queryFilter(stakingFilter, fromBlock, toBlock);
-
-    const swapFilter = pancake_pair_contract.filters.Swap();
-    const swapEvents = await pancake_pair_contract.queryFilter(swapFilter, fromBlock, toBlock);
 
     const pellFilter = pell_contract.filters.Deposit();
     const pellEvents = await pell_contract.queryFilter(pellFilter, fromBlock, toBlock);
@@ -82,24 +79,35 @@ async function processEvents(
                         stakeAmount: ${stakeAmount}, 
                         stBTCAmount: ${stBTCAmount}`
             );
-            
-            if (stBTCAmount >= ethers.parseEther("0.0002")) {
-                const { error } = await supabase
-                    .from('user_tasks')
-                    .insert([
-                        { user_addr: user, task_id: 1 }
-                    ])
-                
-                if (error == null) {
-                    console.log(`user_addr ${user} complete task 1`)
-                    console.log('API_URL:', API_URL, '  API_TOKEN:', API_TOKEN);
-                    const timestamp = Math.floor(Date.now() / 1000);
+            if (stBTCAmount >= ethers.parseEther("0.0001")) {
+                const timestamp = Math.floor(Date.now() / 1000);
+                try {
+                    const taskKey = `task22:${user}`;
+                    const taskStatus: TaskStatus = {
+                        address: user,
+                        taskId: 22,
+                        timestamp: timestamp,
+                        uploaded: false
+                    };
+                    
+                    try {
+                        const existingTask = await db.get(taskKey);
+                        if (existingTask) {
+                            console.log("Task already exists, skipping...");
+                            continue;
+                        }
+                    } catch (error: any) {
+                        console.log("No existing task found, proceeding...");
+                    }
+
+                    await db.put(taskKey, taskStatus);
+                    console.log(`Recorded task 22 for user ${user}`);
                     try {
                         const response = await axios.post(API_URL, {
                             token: API_TOKEN,
                             data: [
                                 {
-                                    taskId: 1,
+                                    taskId: 22,
                                     timestamp: timestamp,
                                     address: user
                                 }
@@ -110,71 +118,20 @@ async function processEvents(
                             }
                         });
                         console.log('API Response:', response.data);
+                        taskStatus.uploaded = true;
+                        await db.put(taskKey, taskStatus);
+                        console.log(`Updated task 22 status for user ${user}`);
                     } catch (error) {
                         console.error('Error sending data to API:', error);
                     }
-                } else {
-                    console.log('insert error, code: ', error.code, ' message: ', error.message)
+                } catch (error) {
+                    console.error('Error processing task:', error);
                 }
             }else{
-                console.log('stBTCAmount is less than 0.0002');
+                console.log('stBTCAmount is less than 0.0001');
             }
         }
       }
-    }
-
-    for (const event of swapEvents) {
-        if (event instanceof ethers.EventLog) {
-            const { args } = event;
-            if (args && args.length >= 7) {
-                const [sender, recipient, amount0, amount1, sqrtPriceX96, liquidity, tick] = args;
-                console.log(
-                    `Swap detected:
-                            sender: ${sender}, 
-                            recipient: ${recipient}, 
-                            amount0: ${amount0}, 
-                            amount1: ${amount1}, 
-                            sqrtPriceX96: ${sqrtPriceX96}, 
-                            liquidity: ${liquidity},
-                            tick: ${tick}`
-                );
-                if (amount1 < 0 && (-amount1) >= ethers.parseEther("0.0002")) {
-                    const { error } = await supabase
-                        .from('user_tasks')
-                        .insert([
-                            { user_addr: recipient, task_id: 2 }
-                        ])
-                
-                    if (error == null) {
-                        console.log(`user_addr ${recipient} complete task 2`)
-                        const timestamp = Math.floor(Date.now() / 1000);
-                        try {
-                            const response = await axios.post(API_URL, {
-                                token: API_TOKEN,
-                                data: [
-                                    {
-                                        taskId: 2,
-                                        timestamp: timestamp,
-                                        address: recipient
-                                    }
-                                ]
-                            }, {
-                                headers: {
-                                    'Content-Type': 'application/json'
-                                }
-                            });
-                            console.log('API Response:', response.data);
-                        } catch (error) {
-                            console.error('Error sending data to API:', error);
-                        }
-                    } else {
-                        console.log('insert error, code: ', error.code, ' message: ', error.message)
-                    }
-                } else {
-                    console.log('swap stBTCAmount is less than 0.0002');
-                }
-            }
-        }
     }
 
     for (const event of pellEvents) {
@@ -189,22 +146,34 @@ async function processEvents(
                             strategy: ${strategy}, 
                             shares: ${shares}`
                 );
-                if (token == STBTC_CONTRACT_ADDRESS && shares >= ethers.parseEther("0.0002")) {
-
-                    const { error } = await supabase
-                        .from('user_tasks')
-                        .insert([
-                            { user_addr: staker, task_id: 3 }
-                        ])
-                    if (error == null) {
-                        console.log(`user_addr ${staker} complete task 3`)
-                        const timestamp = Math.floor(Date.now() / 1000);
+                if (token == STBTC_CONTRACT_ADDRESS && shares >= ethers.parseEther("0.0001")) {
+                    const timestamp = Math.floor(Date.now() / 1000);
+                    try {
+                        const taskKey = `task23:${staker}`;
+                        const taskStatus: TaskStatus = {
+                            address: staker,
+                            taskId: 23,
+                            timestamp: timestamp,
+                            uploaded: false
+                        };
+                        
+                        try {
+                            const existingTask = await db.get(taskKey);
+                            if (existingTask) {
+                                console.log("Task already exists, skipping...");
+                                continue;
+                            }
+                        } catch (error: any) {
+                            console.log("No existing task found, proceeding...");
+                        }
+                        await db.put(taskKey, taskStatus);
+                        console.log(`Recorded task 23 for user ${staker}`);
                         try {
                             const response = await axios.post(API_URL, {
                                 token: API_TOKEN,
                                 data: [
                                     {
-                                        taskId: 3,
+                                        taskId: 23,
                                         timestamp: timestamp,
                                         address: staker
                                     }
@@ -215,11 +184,15 @@ async function processEvents(
                                 }
                             });
                             console.log('API Response:', response.data);
+                            
+                            taskStatus.uploaded = true;
+                            await db.put(taskKey, taskStatus);
+                            console.log(`Updated task 23 status for user ${staker}`);
                         } catch (error) {
                             console.error('Error sending data to API:', error);
                         }
-                    } else {
-                        console.log('insert error, code: ', error.code, ' message: ', error.message)
+                    } catch (error) {
+                        console.error('Error processing task:', error);
                     }
                 } else {
                     console.log('stake stBTCAmount is less than 0.0002');
@@ -252,7 +225,6 @@ async function getBlockHeightByTimestamp(provider: JsonRpcProvider, startBlock: 
 async function main() {
     const provider = new ethers.JsonRpcProvider(RPC_URL);
     const btcb_staking_contract = new ethers.Contract(BTCB_STAKE_CONTRACT_ADDRESS, BTCB_STAKING_ABI, provider);
-    const pancake_pair_contract = new ethers.Contract(PANCAKE_PAIR_CONTRACT_ADDRESS, PANCAKE_PAIR_ABI, provider);
     const pell_contract = new ethers.Contract(PELL_CONTRACT_ADDRESS, PELL_CONTRACT_ABI, provider);
   
     let lastProcessedBlock = await getLastProcessedBlock();
@@ -308,7 +280,7 @@ async function main() {
                         return;
                     }
                         
-                    await processEvents(btcb_staking_contract, pancake_pair_contract, pell_contract, fromBlock, toBlock);
+                    await processEvents(btcb_staking_contract, pell_contract, fromBlock, toBlock);
                         
                     lastProcessedBlock = toBlock;
                     await saveLastProcessedBlock(lastProcessedBlock);
